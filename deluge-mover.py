@@ -13,11 +13,12 @@ from urllib.parse import urlparse
 deluge_webui = "http://localhost:8112/json"
 deluge_password = "deluged"
 
-# this is the absolute path to your cache drive's downloads
+# this is the absolute host path to your cache drive's downloads
 cache_download_path = "/mnt/cache/torrents/completed"
 
-# the number of days to look back for relevant torrents to move
-age_days = 5
+# the age range of days to look for relevant torrents to move
+age_day_min = 2
+age_day_max = 5
 
 
 # error codes we could potentiall receive
@@ -35,10 +36,9 @@ class DelugeHandler:
         self.session = requests.Session()
 
     async def call(self, method, params, retries=1):
-
         url = urlparse(deluge_webui).geturl()
         headers = {"Content-Type": "application/json"}
-        id = random.randint(0, 0x7fffffff)
+        id = random.randint(0, 0x7FFFFFFF)
 
         # set our cookie if we have it
         if self.deluge_cookie:
@@ -51,8 +51,7 @@ class DelugeHandler:
         try:
             response = self.session.post(
                 url,
-                data=json.dumps(
-                    {"method": method, "params": params, "id": id}),
+                data=json.dumps({"method": method, "params": params, "id": id}),
                 headers=headers,
             )
             response.raise_for_status()
@@ -68,11 +67,14 @@ class DelugeHandler:
             raise ValueError(
                 f"Deluge method {method} response was non-JSON: {json_parse_error}"
             )
-        
+
         # check for authorization failures, and retry once
-        if (json_response.get("error", [None]) != None):
-            if json_response.get("error", [None]).get("code") == DelugeErrorCode.NO_AUTH and retries > 0:
-                
+        if json_response.get("error", [None]) != None:
+            if (
+                json_response.get("error", [None]).get("code")
+                == DelugeErrorCode.NO_AUTH
+                and retries > 0
+            ):
                 self.deluge_cookie = None
                 await self.call("auth.login", [deluge_password], 0)
 
@@ -101,14 +103,19 @@ def find_file_on_cache(dir, file):
     return None
 
 
-def filter_added_time(t_object, age_days):
+def filter_added_time(t_object):
     cached_file = False
-    time_elapsed = int(time.time()) - t_object.get('time_added', [None])
-    current_path = path.join(cache_download_path, t_object.get('name', [None]))
-    if time_elapsed >= (age_days * 60 * 60 * 24):
+    time_elapsed = int(time.time()) - t_object.get("time_added", [None])
+    current_path = path.join(cache_download_path, t_object.get("name", [None]))
+    if time_elapsed >= (age_day_min * 60 * 60 * 24) and time_elapsed <= (
+        age_day_max * 60 * 60 * 24
+    ):
         if path.exists(current_path):
             cached_file = True
-        elif (find_file_on_cache(cache_download_path, t_object.get('name', [None])) != None):
+        elif (
+            find_file_on_cache(cache_download_path, t_object.get("name", [None]))
+            != None
+        ):
             cached_file = True
         return cached_file
     return False
@@ -123,32 +130,39 @@ async def main():
         print("Authentication response:", auth_response)
 
         # get torrent list
-        torrent_list = (await deluge_handler.call("web.update_ui", [["name", "save_path", "progress", "time_added"], {}])).get(
-            'result', [None]).get('torrents', [None])
+        torrent_list = (
+            (
+                await deluge_handler.call(
+                    "web.update_ui",
+                    [["name", "save_path", "progress", "time_added"], {}],
+                )
+            )
+            .get("result", [None])
+            .get("torrents", [None])
+        )
 
         # make sure list exists
         if torrent_list != None:
             filtered_torrents = filter(
-                lambda kv: filter_added_time(kv[1], age_days),
-                torrent_list.items()
+                lambda kv: filter_added_time(kv[1]), torrent_list.items()
             )
 
             # loop through items in torrent list
             for hash, values in filtered_torrents:
                 print(
                     f"{values.get('name', [None])} ({hash})"
-                    f"\n\tsave_path: {path.join(cache_download_path,
-                                         values.get('name', [None]))}\n")
-                
+                    f"\n\tsave_path: {path.join(cache_download_path,values.get('name', [None]))}\n"
+                )
+
                 # pause relevant torrents
                 await deluge_handler.call("core.pause_torrent", [hash])
-            
+
             time.sleep(10)
 
             # run the mover
             print("Starting Mover")
             system("/usr/local/sbin/mover start")
-            
+
             time.sleep(10)
 
             # resume all the torrents we previously paused
@@ -163,6 +177,7 @@ async def main():
 
 async def run_main():
     await main()
+
 
 if __name__ == "__main__":
     asyncio.run(run_main())
