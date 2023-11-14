@@ -13,7 +13,15 @@ from urllib.parse import urlparse
 deluge_webui = "http://localhost:8112/json"
 deluge_password = "deluged"
 
+# this changes whether the actual cache drive is checked for
+# applicable files to pause/move before pausing.
+#
+# if this is false, it will pause all torrents in the age-range
+# instead of only torrents in that range that exist on the cache
+check_fs = False
+
 # this is the absolute host path to your cache drive's downloads
+# you only need this to be changed/set if using 'check_fs = True'
 cache_download_path = "/mnt/cache/torrents/completed"
 
 # the age range of days to look for relevant torrents to move
@@ -110,12 +118,15 @@ def filter_added_time(t_object):
     if time_elapsed >= (age_day_min * 60 * 60 * 24) and time_elapsed <= (
         age_day_max * 60 * 60 * 24
     ):
-        if path.exists(current_path):
-            cached_file = True
-        elif (
-            find_file_on_cache(cache_download_path, t_object.get("name", [None]))
-            != None
-        ):
+        if check_fs:
+            if path.exists(current_path):
+                cached_file = True
+            elif (
+                find_file_on_cache(cache_download_path, t_object.get("name", [None]))
+                != None
+            ):
+                cached_file = True
+        else:
             cached_file = True
         return cached_file
     return False
@@ -149,9 +160,18 @@ async def main():
 
             # loop through items in torrent list
             for hash, values in filtered_torrents:
+                if check_fs:
+                    save_path = path.join(
+                        cache_download_path, values.get("name", [None])
+                    )
+                else:
+                    save_path = path.join(
+                        values.get("save_path", [None]), values.get("name", [None])
+                    )
+
                 print(
                     f"{values.get('name', [None])} ({hash})"
-                    f"\n\tsave_path: {path.join(cache_download_path,values.get('name', [None]))}\n"
+                    f"\n\tsave_path: {save_path}\n"
                 )
 
                 # pause relevant torrents
