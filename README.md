@@ -2,21 +2,19 @@
 
 `deluge-mover` is a Python script to pause torrents on a cache drive, run unRAID's mover script, and resume them after the move has been completed.
 
+Note: This branch is different than the `master` branch.
+
 ## Introduction
 
-`deluge-mover` is very simple. You only need to edit the `deluge-mover.py` file with your JSON-RPC URL (this is your Deluge WebUI with /json at the end), your WebUI password, and unRAID's cache drive's absolute path. This is the path where the torrent data resides, not the mount for the drive itself. (e.g. `/mnt/cache/torrents/complete`)
+`deluge-mover` is very simple. You only need to edit the `deluge-mover.py` file with your JSON-RPC URL (this is your Deluge WebUI with /json at the end), your WebUI password, and unRAID cache drive's absolute path. This is the path where the torrent data resides that you wish to not pause/match, not the mount for the drive itself. (e.g. `/mnt/user/torrents/complete`)
 
 Read the notes in the script's configuration section and set them accordingly.
 
-The concept for how this script operates was taken from [Bobokun](https://github.com/bobokun) and his mover script for qBittorrent.
-
-Special thanks to [TRaSH](https://github.com/TRaSH-Guides) for the motivation to do this.
-
 ## Uses
 
-Using a cache drive for your downloads in unRAID normally requires you to manually pause torrents, or shut down your torrent-client container, to move the files to permanent storage on your array. This script will automatically pause torrents residing on your cache drive, run the mover script, and resume them after.
+If you wish to pause all torrents on your array, to spin down the drives, you can use this script to do so. Simply configure the path where the torrents on your cache would reside in the .py file and your Deluge WebUI details.
 
-This can be set on a timer so it periodically runs, keeping your cache drive ready for more.
+The sleep variable is a number, in hours, which the torrents will remain paused.
 
 ## Installation
 
