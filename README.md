@@ -31,3 +31,7 @@ You can find a detailed walkthrough at [TRaSH's Deluge Mover Script Guide](https
 - Run `pip3 install requests` from the terminal in unRAID and set up a User Script to run this command when the array starts **OR** set up a venv for the script with `requests` installed.
 - Edit `deluge-mover.py` with your WebUI URL, password, and preferred torrent age. (age is from time added to Deluge)
 - Create a new User Script to execute `deluge-mover.py` on your schedule.
+
+## Support Me
+
+https://tip.ary.dev

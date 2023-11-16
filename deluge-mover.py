@@ -198,6 +198,11 @@ async def main():
             filtered_torrents = list(
                 filter(lambda kv: filter_added_time(kv[1]), torrent_list.items())
             )
+            if len(filtered_torrents) == 0:
+                print(
+                    f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}no eligible torrents.\n\t\tscript completed.{CEND}\n\n"
+                )
+                exit(0)
             # loop through items in torrent list
             for hash, values in filtered_torrents:
                 if check_fs:
