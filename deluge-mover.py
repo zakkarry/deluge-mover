@@ -8,6 +8,8 @@ from enum import Enum
 from os import path, walk, system
 from urllib.parse import urlparse
 
+### CONFIGURATION VARIABLES ###
+
 # this webui will need to be the JSON-RPC endpoint
 # this ends with '/json'
 deluge_webui = "http://localhost:8112/json"
@@ -20,22 +22,51 @@ deluge_password = "deluged"
 # instead of only torrents in that range that exist on the cache
 check_fs = False
 
+# if you are using the mover tuner and don't want to use it for
+# this script, set this to true
+#
+# if you do not use mover tuner, leave this as false
+use_mover_old = False
+
 # this is the absolute host path to your cache drive's downloads
 # you only need this to be changed/set if using 'check_fs = True'
 cache_download_path = "/mnt/cache/torrents/completed"
 
 # the age range of days to look for relevant torrents to move
-age_day_min = 2
-age_day_max = 5
+# i dont recommend setting age_day_max to less than the schedule
+# you run the script on...
+#
+# if you run every 7 days, this should be at least 7 to prevent
+# files from being stuck on your cache forever
+#
+# 0 disables age_day_max
+# set both age vars to 0 to move everything on your cache drive
+
+age_day_min = 3
+age_day_max = 0
+
+### STOP EDITING HERE ###
+### STOP EDITING HERE ###
+### STOP EDITING HERE ###
+### STOP EDITING HERE ###
 
 
-# error codes we could potentiall receive
+# error codes we could potentially receive
 class DelugeErrorCode(Enum):
     NO_AUTH = 1
     BAD_METHOD = 2
     CALL_ERR = 3
     RPC_FAIL = 4
     BAD_JSON = 5
+
+
+# color codes for terminal
+CRED = "\033[91m"
+CGREEN = "\33[32m"
+CYELLOW = "\33[33m"
+CBLUE = "\33[4;34m"
+CBOLD = "\33[1m"
+CEND = "\033[0m"
 
 
 class DelugeHandler:
@@ -53,7 +84,9 @@ class DelugeHandler:
             headers["Cookie"] = self.deluge_cookie
 
         if method == "auth.login":
-            print(f"Connecting to Deluge: {url}")
+            print(
+                f"[{CGREEN}init{CEND}/{CYELLOW}script{CEND}] -> {CYELLOW}Connecting to Deluge:{CEND} {CBLUE}{url}{CEND}"
+            )
 
         # send our request to the JSON-RPC endpoint
         try:
@@ -65,7 +98,7 @@ class DelugeHandler:
             response.raise_for_status()
         except requests.exceptions.RequestException as network_error:
             raise ConnectionError(
-                f"Failed to connect to Deluge at {url}"
+                f"[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Failed to connect to Deluge at {CBLUE}{url}{CEND}"
             ) from network_error
 
         # make sure the json response is valid
@@ -73,7 +106,7 @@ class DelugeHandler:
             json_response = response.json()
         except json.JSONDecodeError as json_parse_error:
             raise ValueError(
-                f"Deluge method {method} response was non-JSON: {json_parse_error}"
+                f"[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Deluge method {method} response was {CYELLOW}non-JSON{CEND}: {json_parse_error}"
             )
 
         # check for authorization failures, and retry once
@@ -90,7 +123,7 @@ class DelugeHandler:
                     return await self.call(method, params)
                 else:
                     raise ConnectionError(
-                        "Connection lost with Deluge. Reauthentication failed."
+                        f"[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Connection lost with Deluge. Reauthentication {CYELLOW}failed{CEND}."
                     )
 
         self.handle_cookies(response.headers)
@@ -113,10 +146,15 @@ def find_file_on_cache(dir, file):
 
 def filter_added_time(t_object):
     cached_file = False
+    if t_object.get("time_added", None) is None:
+        print(
+            f"\n\n[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Deluge state has been {CRED}corrupted{CEND}. Please {CYELLOW}restart{CEND} the Deluge to correct this.\n\n"
+        )
+        exit(1)
     time_elapsed = int(time.time()) - t_object.get("time_added", [None])
     current_path = path.join(cache_download_path, t_object.get("name", [None]))
-    if time_elapsed >= (age_day_min * 60 * 60 * 24) and time_elapsed <= (
-        age_day_max * 60 * 60 * 24
+    if time_elapsed >= (age_day_min * 60 * 60 * 24) and (
+        (time_elapsed <= (age_day_max * 60 * 60 * 24)) or (age_day_max == 0)
     ):
         if check_fs:
             if path.exists(current_path):
@@ -138,8 +176,11 @@ async def main():
     try:
         # auth.login
         auth_response = await deluge_handler.call("auth.login", [deluge_password], 0)
-        print("Authentication response:", auth_response)
-
+        print(
+            f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
+            auth_response,
+            "\n\n",
+        )
         # get torrent list
         torrent_list = (
             (
@@ -154,10 +195,9 @@ async def main():
 
         # make sure list exists
         if torrent_list != None:
-            filtered_torrents = filter(
-                lambda kv: filter_added_time(kv[1]), torrent_list.items()
+            filtered_torrents = list(
+                filter(lambda kv: filter_added_time(kv[1]), torrent_list.items())
             )
-
             # loop through items in torrent list
             for hash, values in filtered_torrents:
                 if check_fs:
@@ -170,27 +210,49 @@ async def main():
                     )
 
                 print(
-                    f"{values.get('name', [None])} ({hash})"
-                    f"\n\tsave_path: {save_path}\n"
+                    f"[{CRED}pause_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
+                    f"\n\t\t {CYELLOW}info_hash{CEND}: {hash}"
+                    f"\n\t\t {CYELLOW}save_path{CEND}: {save_path}\n"
                 )
 
                 # pause relevant torrents
                 await deluge_handler.call("core.pause_torrent", [hash])
+            print(
+                f"[{CRED}pause_summary{CEND}]: paused {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
+            )
 
             time.sleep(10)
 
             # run the mover
-            print("Starting Mover")
-            system("/usr/local/sbin/mover start")
+            print(
+                f"[{CGREEN}init{CEND}] -> {CYELLOW}{CBOLD}Executing unRAID Mover...{CEND}\n"
+            )
+
+            if use_mover_old:
+                system("/usr/local/sbin/mover.old start")
+            else:
+                system("/usr/local/sbin/mover start")
 
             time.sleep(10)
+            print("\n\n")
 
             # resume all the torrents we previously paused
-            for hash in filtered_torrents:
+            for hash, values in filtered_torrents:
                 await deluge_handler.call("core.resume_torrent", [hash])
+                print(
+                    f"[{CGREEN}resume_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
+                    f"\n\t\t  {CYELLOW}info_hash{CEND}: {hash}\n"
+                )
+
+            print(
+                f"[{CGREEN}resume_summary{CEND}]: resumed {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
+            )
+            print(
+                f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}script completed.{CEND}\n\n"
+            )
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"\n\n[{CRED}error{CEND}]: {CBOLD}{e}{CEND}\n\n")
 
     deluge_handler.session.close()
 

@@ -6,6 +6,8 @@
 
 `deluge-mover` is very simple. You only need to edit the `deluge-mover.py` file with your JSON-RPC URL (this is your Deluge WebUI with /json at the end), your WebUI password, and unRAID's cache drive's absolute path. This is the path where the torrent data resides, not the mount for the drive itself. (e.g. `/mnt/cache/torrents/complete`)
 
+Read the notes in the script's configuration section and set them accordingly.
+
 The concept for how this script operates was taken from [Bobokun](https://github.com/bobokun) and his mover script for qBittorrent.
 
 Special thanks to [TRaSH](https://github.com/TRaSH-Guides) for the motivation to do this.
@@ -20,7 +22,7 @@ This can be set on a timer so it periodically runs, keeping your cache drive rea
 
 ### Detailed Walkthrough
 
-You can find a detailed walkthrough at [TRaSH's Mover Script Guide](https://trash-guides.info/Downloaders/qBittorrent/Tips/How-to-run-the-unRaid-mover-for-qBittorrent/#plugins) that will be almost identical to the process you would do for this script. The only difference is that instead of `qbittorrent-api` you will install `requests`.
+You can find a detailed walkthrough at [TRaSH's Deluge Mover Script Guide](https://trash-guides.info/Downloaders/Deluge/Tips/Unraid-Mover/) I've put together for this script.
 
 ### Brief Walkthrough (Advanced Users)
 
