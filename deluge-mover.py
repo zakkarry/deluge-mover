@@ -139,7 +139,7 @@ class DelugeHandler:
 
 def find_file_on_cache(dir, file):
     for root, dirs, files in walk(dir):
-        if file in files:
+        if file in files or file in dirs:
             return path.join(root, file)
     return None
 
