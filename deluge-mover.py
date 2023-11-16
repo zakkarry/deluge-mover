@@ -250,7 +250,11 @@ async def main():
             print(
                 f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}script completed.{CEND}\n\n"
             )
-
+        else:
+            print(
+                f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is likely not connected to the Deluge daemon. Open the WebUI to resolve this.{CEND}\n\n"
+            )
+            exit(1)
     except Exception as e:
         print(f"\n\n[{CRED}error{CEND}]: {CBOLD}{e}{CEND}\n\n")
 
