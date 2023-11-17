@@ -178,10 +178,9 @@ async def main():
                 exit(0)
             # loop through items in torrent list
             for hash, values in filtered_torrents:
-                save_path = path.join(cache_download_path, values.get("name", [None]))
                 print(
                     f"[{CRED}pause_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
-                    f"\n\t\t {CYELLOW}info_hash{CEND}: {hash}"
+                    f"\n\t\t {CYELLOW}info_hash{CEND}: {hash}\n"
                 )
 
                 # pause relevant torrents
@@ -189,10 +188,16 @@ async def main():
             print(
                 f"[{CRED}pause_summary{CEND}]: paused {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
             )
+            time.sleep(3)
+            deluge_handler.session.close()
 
             time.sleep(sleep_time_hours * 60 * 60)
-
             print("\n\n")
+
+            deluge_handler = DelugeHandler()
+            auth_response = await deluge_handler.call(
+                "auth.login", [deluge_password], 0
+            )
 
             # resume all the torrents we previously paused
             for hash, values in filtered_torrents:
