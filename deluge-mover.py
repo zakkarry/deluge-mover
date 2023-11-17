@@ -232,6 +232,7 @@ async def main():
             )
 
             time.sleep(10)
+            deluge_handler.session.close()
 
             # run the mover
             print(
@@ -245,6 +246,11 @@ async def main():
 
             time.sleep(10)
             print("\n\n")
+
+            deluge_handler = DelugeHandler()
+            auth_response = await deluge_handler.call(
+                "auth.login", [deluge_password], 0
+            )
 
             # resume all the torrents we previously paused
             for hash, values in filtered_torrents:
