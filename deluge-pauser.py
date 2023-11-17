@@ -148,6 +148,22 @@ async def main():
     try:
         # auth.login
         auth_response = await deluge_handler.call("auth.login", [deluge_password], 0)
+
+        # checks the status of webui being connected, and connects to the daemon
+        webui_connected = (await deluge_handler.call("web.connected", [], 0)).get(
+            "result"
+        )
+        if webui_connected is False:
+            web_ui_daemons = await deluge_handler.call("web.get_hosts", [], 0)
+            webui_connected = await deluge_handler.call(
+                "web.connect", [web_ui_daemons.get("result")[0][0]], 0
+            )
+            if webui_connected is False:
+                print(
+                    f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
+                    f"{CYELLOW}\t Open the WebUI's connection manager to resolve this.{CEND}\n\n"
+                )
+                exit(1)
         print(
             f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
             auth_response,
