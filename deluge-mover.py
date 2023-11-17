@@ -137,30 +137,34 @@ class DelugeHandler:
             deluge_cookie = None
 
 
-def find_file_on_cache(dir, file):
-    for root, dirs, files in walk(dir):
-        if file in files or file in dirs:
-            return path.join(root, file)
+def find_file_on_cache(dir, target):
+    for root, dirs, files in recursive_path_list(dir):
+        if target in files or target in dirs:
+            return path.join(root, target)
     return None
+
+
+def recursive_path_list(dir):
+    return [(root, dirs, files) for root, dirs, files in walk(dir)]
 
 
 def filter_added_time(t_object):
     cached_file = False
-    if t_object.get("time_added", None) is None:
+    if t_object[1].get("time_added", None) is None:
         print(
             f"\n\n[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Deluge state has been {CRED}corrupted{CEND}. Please {CYELLOW}restart{CEND} the Deluge to correct this.\n\n"
         )
         exit(1)
-    time_elapsed = int(time.time()) - t_object.get("time_added", [None])
-    current_path = path.join(cache_download_path, t_object.get("name", [None]))
+    time_elapsed = int(time.time()) - t_object[1].get("time_added", [None])
+    assumed_path = path.join(cache_download_path, t_object[1].get("name", [None]))
     if time_elapsed >= (age_day_min * 60 * 60 * 24) and (
         (time_elapsed <= (age_day_max * 60 * 60 * 24)) or (age_day_max == 0)
     ):
         if check_fs:
-            if path.exists(current_path):
+            if path.exists(assumed_path):
                 cached_file = True
             elif (
-                find_file_on_cache(cache_download_path, t_object.get("name", [None]))
+                find_file_on_cache(cache_download_path, t_object[1].get("name", [None]))
                 != None
             ):
                 cached_file = True
@@ -196,8 +200,9 @@ async def main():
         # make sure list exists
         if torrent_list != None:
             filtered_torrents = list(
-                filter(lambda kv: filter_added_time(kv[1]), torrent_list.items())
+                filter(lambda kv: filter_added_time(kv), torrent_list.items())
             )
+
             if len(filtered_torrents) == 0:
                 print(
                     f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}no eligible torrents.\n\t\tscript completed.{CEND}\n\n"
