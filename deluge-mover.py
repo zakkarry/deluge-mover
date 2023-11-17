@@ -61,12 +61,14 @@ class DelugeErrorCode(Enum):
 
 
 # color codes for terminal
-CRED = "\033[91m"
-CGREEN = "\33[32m"
-CYELLOW = "\33[33m"
-CBLUE = "\33[4;34m"
-CBOLD = "\33[1m"
-CEND = "\033[0m"
+use_colors_codes = False
+
+CRED = "\033[91m" if (use_colors_codes) else ""
+CGREEN = "\33[32m" if (use_colors_codes) else ""
+CYELLOW = "\33[33m" if (use_colors_codes) else ""
+CBLUE = "\33[4;34m" if (use_colors_codes) else ""
+CBOLD = "\33[1m" if (use_colors_codes) else ""
+CEND = "\033[0m" if (use_colors_codes) else ""
 
 
 class DelugeHandler:
@@ -180,6 +182,22 @@ async def main():
     try:
         # auth.login
         auth_response = await deluge_handler.call("auth.login", [deluge_password], 0)
+
+        # checks the status of webui being connected, and connects to the daemon
+        webui_connected = (await deluge_handler.call("web.connected", [], 0)).get(
+            "result"
+        )
+        if webui_connected is False:
+            web_ui_daemons = await deluge_handler.call("web.get_hosts", [], 0)
+            webui_connected = await deluge_handler.call(
+                "web.connect", [web_ui_daemons.get("result")[0][0]], 0
+            )
+            if webui_connected is False:
+                print(
+                    f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
+                    f"{CYELLOW}\t Open the WebUI's connection manager to resolve this.{CEND}\n\n"
+                )
+                exit(1)
         print(
             f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
             auth_response,
@@ -232,7 +250,6 @@ async def main():
             )
 
             time.sleep(10)
-            deluge_handler.session.close()
 
             # run the mover
             print(
@@ -246,11 +263,6 @@ async def main():
 
             time.sleep(10)
             print("\n\n")
-
-            deluge_handler = DelugeHandler()
-            auth_response = await deluge_handler.call(
-                "auth.login", [deluge_password], 0
-            )
 
             # resume all the torrents we previously paused
             for hash, values in filtered_torrents:
