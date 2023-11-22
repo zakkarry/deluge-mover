@@ -203,6 +203,8 @@ async def main():
             auth_response,
             "\n\n",
         )
+        if auth_response.get("result") is False:
+            exit(1)
         # get torrent list
         torrent_list = (
             (
