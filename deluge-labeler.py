@@ -187,7 +187,7 @@ def limited_tracker(t_object, limited = False):
 
         # is a condition possible where execution reaches here and we end up returning None (effectively False); is this ok?
     else:
-        return not (limited is True and label != "limiter")  # no need to check for [!= 'limiter'],
+        return not (limited and label != "limiter")  # no need to check for [!= 'limiter'],
                                                              # as above we already check [if limiter is True and label == limiter],
                                                              # i.e. only way for us to have limited=true here is if label != 'limiter'.
                                                              # even more importantly, the if-check above already checks for [label != limiter],
