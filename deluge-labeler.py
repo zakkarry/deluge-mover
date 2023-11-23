@@ -14,7 +14,10 @@ from functools import partial
 deluge_webui = "http://127.0.0.1:8112/json"
 deluge_password = "deluged"
 
-# remove extra labels
+# runs without labeling changes
+dryrun = True
+
+# remove extra labels after
 remove_labels = [
     "sonarr.cross-seed",
     "radarr.cross-seed",
@@ -23,6 +26,23 @@ remove_labels = [
     "imported.cross-seed",
     "cross-seed.cross-seed",
     "limiter.cross-seed",
+]
+
+# list of valuable trackers (matches announce url)
+valuable_trackers = ["valueable-tracker-domain"]
+
+# list of terms (case-insensitive) to send to
+# seeding requirements not-met label
+notmet_filter = [
+    "daily.show",
+    "colbert",
+    "bill.maher",
+    "ethel",
+    "edith",
+    "syncopy",
+    "cbfm",
+    "eleanor",
+    "accomplishedyak",
 ]
 ### STOP EDITING HERE ###
 ### STOP EDITING HERE ###
@@ -119,25 +139,15 @@ class DelugeHandler:
 
 
 def valued_trackers(trackers):
-    return "valuable_tracker" in trackers
+    return list(filter(lambda i: i in trackers, valuable_trackers))
 
 
 def notmet_release(release):
     lowern = release.lower()
-    return (
-        "daily.show" in lowern
-        or "colbert" in lowern
-        or "bill.maher" in lowern
-        or "ethel" in lowern
-        or "edith" in lowern
-        or "syncopy" in lowern
-        or "cbfm" in lowern
-        or "eleanor" in lowern
-        or "accomplishedyak" in lowern
-    )
+    return any(i in lowern for i in notmet_filter)
 
 
-def limited_tracker(t_object, limited = False):
+def limited_tracker(t_object, limited=False):
     trackers = t_object[1].get("tracker", None)
     name = t_object[1].get("name", [None])
     label = t_object[1].get("label", [None])
@@ -158,49 +168,26 @@ def limited_tracker(t_object, limited = False):
             return False  # we don't want to set 'limiter' label if torrent is of valuable tracker because full BW should be allowed for them
         else:
             # we don't want to set 'imported' label for some specific torrents OR if their label is of {not-met,imported,non-imported}
-            return not (notmet_release(name) or (
-                label == "not-met" or label == "imported" or label == "non-imported"
-            ))
+            return not (
+                notmet_release(name)
+                or (
+                    label == "not-met" or label == "imported" or label == "non-imported"
+                )
+            )
 
     # from here on we process limited = {True,False} of _non-valued_ trackers;
     # we're deciding over setting either 'imported' OR 'limiter' labels:
     if label != "limiter" or label != "non-imported" or label != "not-met":
-        # note in this block we _never_ allow for setting 'imported' label; is this expected?
-        if "cross-seed" in label:
-            if valued_trackers(trackers):  # unreachable block, as we're already processing this some 14 lines above
-                if limited is True:
-                    return False
-                else:
-                    return True
-            else:
-                # for .cross-seed suffixed torrents, allow setting 'limiter' label:
-                return limited is True
-        elif label == "imported":
-            if valued_trackers(trackers) is False:  # unreachable block, as we're already processing this some 23 lines above
-                if limited is True:
-                    return True
-                else:
-                    return False
-            else:
-                # for 'imported'-labeled torrents, allow setting 'limiter' label:
-                return limited
-
-        # is a condition possible where execution reaches here and we end up returning None (effectively False); is this ok?
-    else:
-        return not (limited and label != "limiter")  # no need to check for [!= 'limiter'],
-                                                             # as above we already check [if limiter is True and label == limiter],
-                                                             # i.e. only way for us to have limited=true here is if label != 'limiter'.
-                                                             # even more importantly, the if-check above already checks for [label != limiter],
-                                                             # so this part of the check here really is unreachable.
+        if "cross-seed" in label or label == "imported":
+            return limited
 
 
 async def main():
-
     async def filter_and_label(filter_fun, label):
         filtered_torrents = [kv for kv in torrent_list.items() if filter_fun(kv)]
         if not filtered_torrents:
             print(
-                    f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}no eligible '{label}' torrents.{CEND}\n\n"
+                f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}no eligible '{label}' torrents.{CEND}\n\n"
             )
         else:
             print(
@@ -212,11 +199,11 @@ async def main():
                     f"[{CRED}label.set_torrent{CEND}]: {CBOLD}{torrent.get('name', [None])}{CEND}"
                     f"\n\t\t\t {CYELLOW}label_activity{CEND}: {torrent.get('label', [None])} -> {label}"
                     f"\n\t\t\t {CYELLOW}infohash{CEND}: {hash}"
-                    f"\n\t\t\t {CYELLOW}tracker{CEND}: {torrent.get('tracker', [None])}\n"
+                    f"\n\t\t\t {CYELLOW}tracker{CEND}: {urlparse(torrent.get('tracker', [None])).hostname}\n"
                 )
                 # label relevant torrents
-                await deluge_handler.call("label.set_torrent", [hash, label])
-
+                if not dryrun:
+                    await deluge_handler.call("label.set_torrent", [hash, label])
 
     deluge_handler = DelugeHandler()
 
@@ -242,7 +229,6 @@ async def main():
         print(
             f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
             auth_response,
-            "\n\n",
         )
         if not auth_response.get("result"):
             exit(1)
@@ -257,18 +243,18 @@ async def main():
             # why default to a list here?:
             # .get("result", [None])
             # .get("torrents", [None])
-            .get("result", {})
-            .get("torrents", {})
+            .get("result", {}).get("torrents", {})
         )
 
         # make sure list exists
         if torrent_list:
-            await filter_and_label(partial(limited_tracker, limited = True), 'limiter')
-            await filter_and_label(partial(limited_tracker, limited = 3), 'not-met')
-            await filter_and_label(partial(limited_tracker, limited = False), 'imported')
+            await filter_and_label(partial(limited_tracker, limited=True), "limiter")
+            await filter_and_label(partial(limited_tracker, limited=3), "not-met")
+            await filter_and_label(partial(limited_tracker, limited=False), "imported")
 
-            for item in remove_labels:
-                await deluge_handler.call("label.remove", [item])
+            if not dryrun:
+                for item in remove_labels:
+                    await deluge_handler.call("label.remove", [item])
         else:
             print(
                 f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is likely not connected to the Deluge daemon. Open the WebUI to resolve this.{CEND}\n\n"
