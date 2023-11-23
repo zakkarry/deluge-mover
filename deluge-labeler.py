@@ -166,7 +166,7 @@ def limited_tracker(t_object, limited = False):
     # we're deciding over setting either 'imported' OR 'limiter' labels:
     if label != "limiter" or label != "non-imported" or label != "not-met":
         # note in this block we _never_ allow for setting 'imported' label; is this expected?
-        if label.endswith(".cross-seed"):
+        if "cross-seed" in label:
             if valued_trackers(trackers):  # unreachable block, as we're already processing this some 14 lines above
                 if limited is True:
                     return False
