@@ -183,7 +183,7 @@ def limited_tracker(t_object, limited = False):
                     return False
             else:
                 # for 'imported'-labeled torrents, allow setting 'limiter' label:
-                return limited is True
+                return limited
 
         # is a condition possible where execution reaches here and we end up returning None (effectively False); is this ok?
     else:
