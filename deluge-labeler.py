@@ -5,6 +5,7 @@ import random
 import requests
 from enum import Enum
 from urllib.parse import urlparse
+from functools import partial
 
 ### CONFIGURATION VARIABLES ###
 
@@ -13,7 +14,10 @@ from urllib.parse import urlparse
 deluge_webui = "http://127.0.0.1:8112/json"
 deluge_password = "deluged"
 
-# remove extra labels
+# runs without labeling changes
+dryrun = True
+
+# remove extra labels after
 remove_labels = [
     "sonarr.cross-seed",
     "radarr.cross-seed",
@@ -22,6 +26,23 @@ remove_labels = [
     "imported.cross-seed",
     "cross-seed.cross-seed",
     "limiter.cross-seed",
+]
+
+# list of valuable trackers (matches announce url)
+valuable_trackers = ["valueable-tracker-domain"]
+
+# list of terms (case-insensitive) to send to
+# seeding requirements not-met label
+notmet_filter = [
+    "daily.show",
+    "colbert",
+    "bill.maher",
+    "ethel",
+    "edith",
+    "syncopy",
+    "cbfm",
+    "eleanor",
+    "accomplishedyak",
 ]
 ### STOP EDITING HERE ###
 ### STOP EDITING HERE ###
@@ -118,105 +139,88 @@ class DelugeHandler:
 
 
 def valued_trackers(trackers):
-    if "valuable_tracker" in trackers:
-        return True
-    else:
-        False
+    return list(filter(lambda i: i in trackers, valuable_trackers))
 
 
 def notmet_release(release):
     lowern = release.lower()
-    if (
-        "daily.show" in lowern
-        or "colbert" in lowern
-        or "bill.maher" in lowern
-        or "ethel" in lowern
-        or "edith" in lowern
-        or "syncopy" in lowern
-        or "cbfm" in lowern
-        or "eleanor" in lowern
-        or "accomplishedyak" in lowern
-    ):
-        return True
-    else:
-        return False
+    return any(i in lowern for i in notmet_filter)
 
 
-def limited_tracker(t_object, limited):
+def limited_tracker(t_object, limited=False):
     trackers = t_object[1].get("tracker", None)
     name = t_object[1].get("name", [None])
     label = t_object[1].get("label", [None])
 
-    if len(trackers) == 0:
+    if not trackers:
         return False
     if limited is True and label == "limiter":
-        return False
+        return False  # correct label already set
     if label == "sonarr" or label == "radarr":
-        return False
+        return False  # always ignore *arr-managed torrents
     if limited == 3:
-        if notmet_release(name) and label != "not-met" and label != "non-imported":
-            # print(f"{name} - {trackers} - {label}")
-            return True
-        else:
-            return False
+        # add 'not-met' label only for specific torrents whose label is not of {not-met,non-imported}:
+        return notmet_release(name) and label != "not-met" and label != "non-imported"
 
+    # from here on, only input value of limited = {True,False} values are processed:
     if valued_trackers(trackers):
         if limited is True:
-            return False
+            return False  # we don't want to set 'limiter' label if torrent is of valuable tracker because full BW should be allowed for them
         else:
-            if (notmet_release(name)) or (
-                label == "not-met" or label == "imported" or label == "non-imported"
-            ):
-                return False
-            else:
-                return True
+            # we don't want to set 'imported' label for some specific torrents OR if their label is of {not-met,imported,non-imported}
+            return not (
+                notmet_release(name)
+                or (
+                    label == "not-met" or label == "imported" or label == "non-imported"
+                )
+            )
 
+    # from here on we process limited = {True,False} of _non-valued_ trackers;
+    # we're deciding over setting either 'imported' OR 'limiter' labels:
     if label != "limiter" or label != "non-imported" or label != "not-met":
-        if "cross-seed" in label:
-            if valued_trackers(trackers):
-                if limited is True:
-                    return False
-                else:
-                    return True
-            else:
-                if limited is True:
-                    return True
-                else:
-                    return False
-        elif label == "imported":
-            if valued_trackers(trackers) is False:
-                if limited is True:
-                    return True
-                else:
-                    return False
-            else:
-                if limited is True:
-                    return True
-                else:
-                    return False
-    else:
-        if limited is True and label != "limiter":
-            return False
-        else:
-            return True
+        if "cross-seed" in label or label == "imported":
+            return limited
 
 
 async def main():
+    async def filter_and_label(filter_fun, label):
+        filtered_torrents = [kv for kv in torrent_list.items() if filter_fun(kv)]
+        if not filtered_torrents:
+            print(
+                f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}no eligible '{label}' torrents.{CEND}\n\n"
+            )
+        else:
+            print(
+                f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}found {len(filtered_torrents)} eligible '{label}' torrents.{CEND}\n\n"
+            )
+            # loop through items in torrent list
+            for hash, torrent in filtered_torrents:
+                print(
+                    f"[{CRED}label.set_torrent{CEND}]: {CBOLD}{torrent.get('name', [None])}{CEND}"
+                    f"\n\t\t\t {CYELLOW}label_activity{CEND}: {torrent.get('label', [None])} -> {label}"
+                    f"\n\t\t\t {CYELLOW}infohash{CEND}: {hash}"
+                    f"\n\t\t\t {CYELLOW}tracker{CEND}: {urlparse(torrent.get('tracker', [None])).hostname}\n"
+                )
+                # label relevant torrents
+                if not dryrun:
+                    await deluge_handler.call("label.set_torrent", [hash, label])
+
     deluge_handler = DelugeHandler()
 
     try:
         # auth.login
         auth_response = await deluge_handler.call("auth.login", [deluge_password], 0)
+
         # checks the status of webui being connected, and connects to the daemon
         webui_connected = (await deluge_handler.call("web.connected", [], 0)).get(
             "result"
         )
-        if webui_connected is False:
+        if not webui_connected:
             web_ui_daemons = await deluge_handler.call("web.get_hosts", [], 0)
             webui_connected = await deluge_handler.call(
                 "web.connect", [web_ui_daemons.get("result")[0][0]], 0
             )
-            if webui_connected is False:
+            if not webui_connected:
                 print(
                     f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
                     f"{CYELLOW}\t Open the WebUI's connection manager to resolve this.{CEND}\n\n"
@@ -225,9 +229,8 @@ async def main():
         print(
             f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
             auth_response,
-            "\n\n",
         )
-        if auth_response.get("result") is False:
+        if not auth_response.get("result"):
             exit(1)
         # get torrent list
         torrent_list = (
@@ -237,90 +240,21 @@ async def main():
                     [["name", "tracker", "label"], {}],
                 )
             )
-            .get("result", [None])
-            .get("torrents", [None])
+            # why default to a list here?:
+            # .get("result", [None])
+            # .get("torrents", [None])
+            .get("result", {}).get("torrents", {})
         )
+
         # make sure list exists
-        if torrent_list != None:
-            limited_torrents = list(
-                filter(
-                    lambda kv: limited_tracker(kv, True),
-                    torrent_list.items(),
-                )
-            )
+        if torrent_list:
+            await filter_and_label(partial(limited_tracker, limited=True), "limiter")
+            await filter_and_label(partial(limited_tracker, limited=3), "not-met")
+            await filter_and_label(partial(limited_tracker, limited=False), "imported")
 
-            if len(limited_torrents) == 0:
-                print(
-                    f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}no eligible 'limited' torrents.{CEND}\n\n"
-                )
-            else:
-                print(
-                    f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}found {len(limited_torrents)} eligible 'limited' torrents.{CEND}\n\n"
-                )
-                # loop through items in torrent list
-                for hash, values in limited_torrents:
-                    print(
-                        f"[{CRED}label.set_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
-                        f"\n\t\t\t {CYELLOW}label_activity{CEND}: {values.get('label', [None])} -> limiter"
-                        f"\n\t\t\t {CYELLOW}infohash{CEND}: {hash}"
-                        f"\n\t\t\t {CYELLOW}tracker{CEND}: {values.get('tracker', [None])}\n"
-                    )
-                    # move relevant torrents
-                    await deluge_handler.call("label.set_torrent", [hash, "limiter"])
-
-            notmet_torrents = list(
-                filter(
-                    lambda kv: limited_tracker(kv, 3),
-                    torrent_list.items(),
-                )
-            )
-            if len(notmet_torrents) == 0:
-                print(
-                    f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}no eligible 'not-met' torrents.{CEND}\n\n"
-                )
-            else:
-                print(
-                    f"\n\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}found {len(notmet_torrents)} eligible 'not-met' torrents.{CEND}\n\n"
-                )
-                # loop through items in torrent list
-                for hash, values in notmet_torrents:
-                    print(
-                        f"[{CRED}label.set_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
-                        f"\n\t\t\t {CYELLOW}label_activity{CEND}: {values.get('label', [None])} -> not-met"
-                        f"\n\t\t\t {CYELLOW}infohash{CEND}: {hash}"
-                        f"\n\t\t\t {CYELLOW}tracker{CEND}: {values.get('tracker', [None])}\n"
-                    )
-                    # move relevant torrents
-                    await deluge_handler.call("label.set_torrent", [hash, "not-met"])
-
-            imported_torrents = list(
-                filter(
-                    lambda kv: limited_tracker(kv, False),
-                    torrent_list.items(),
-                )
-            )
-            if len(imported_torrents) == 0:
-                print(
-                    f"\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}no eligible 'imported' torrents.{CEND}\n\n"
-                )
-            else:
-                print(
-                    f"\n[{CGREEN}deluge-labeler{CEND}]: {CBOLD}found {len(imported_torrents)} eligible 'imported' torrents.{CEND}\n\n"
-                )
-
-                # loop through items in torrent list
-                for hash, values in imported_torrents:
-                    print(
-                        f"[{CRED}label.set_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
-                        f"\n\t\t\t {CYELLOW}label_activity{CEND}: {values.get('label', [None])} -> imported"
-                        f"\n\t\t\t {CYELLOW}infohash{CEND}: {hash}"
-                        f"\n\t\t\t {CYELLOW}tracker{CEND}: {values.get('tracker', [None])}\n"
-                    )
-                    # move relevant torrents
-                    await deluge_handler.call("label.set_torrent", [hash, "imported"])
-
-            for item in remove_labels:
-                await deluge_handler.call("label.remove", [item])
+            if not dryrun:
+                for item in remove_labels:
+                    await deluge_handler.call("label.remove", [item])
         else:
             print(
                 f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is likely not connected to the Deluge daemon. Open the WebUI to resolve this.{CEND}\n\n"
@@ -328,8 +262,8 @@ async def main():
             exit(1)
     except Exception as e:
         print(f"\n\n[{CRED}error{CEND}]: {CBOLD}{e}{CEND}\n\n")
-
-    deluge_handler.session.close()
+    finally:
+        deluge_handler.session.close()
 
 
 async def run_main():
