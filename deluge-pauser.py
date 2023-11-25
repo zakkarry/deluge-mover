@@ -51,7 +51,7 @@ class DelugeHandler:
         self.deluge_cookie = None
         self.session = requests.Session()
 
-    async def call(self, method, params, retries=1):
+    def call(self, method, params, retries=1):
         url = urlparse(deluge_webui).geturl()
         headers = {"Content-Type": "application/json"}
         id = random.randint(0, 0x7FFFFFFF)
@@ -94,10 +94,10 @@ class DelugeHandler:
                 and retries > 0
             ):
                 self.deluge_cookie = None
-                await self.call("auth.login", [deluge_password], 0)
+                self.call("auth.login", [deluge_password], 0)
 
                 if self.deluge_cookie:
-                    return await self.call(method, params)
+                    return self.call(method, params)
                 else:
                     raise ConnectionError(
                         f"[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Connection lost with Deluge. Reauthentication {CYELLOW}failed{CEND}."
@@ -127,10 +127,7 @@ def recursive_path_list(dir):
 
 def filter_added_time(t_object):
     if t_object[1].get("time_added", None) is None:
-        print(
-            f"\n\n[{CRED}json-rpc{CEND}/{CRED}error{CEND}]: Deluge state has been {CRED}corrupted{CEND}. Please {CYELLOW}restart{CEND} the Deluge to correct this.\n\n"
-        )
-        exit(1)
+        return False
     current_path = path.join(cache_download_path, t_object[1].get("name", [None]))
 
     if path.exists(current_path):
@@ -142,22 +139,25 @@ def filter_added_time(t_object):
     return True
 
 
-async def main():
+def main():
     deluge_handler = DelugeHandler()
 
     try:
         # auth.login
-        auth_response = await deluge_handler.call("auth.login", [deluge_password], 0)
+        auth_response = deluge_handler.call("auth.login", [deluge_password], 0)
+
+        # reconnect the daemon for accurate results
+        deluge_handler.call("web.disconnect", [deluge_password], 0)
+        time.sleep(2)
 
         # checks the status of webui being connected, and connects to the daemon
-        webui_connected = (await deluge_handler.call("web.connected", [], 0)).get(
-            "result"
-        )
+        webui_connected = deluge_handler.call("web.connected", [], 0).get("result")
         if webui_connected is False:
-            web_ui_daemons = await deluge_handler.call("web.get_hosts", [], 0)
-            webui_connected = await deluge_handler.call(
+            web_ui_daemons = deluge_handler.call("web.get_hosts", [], 0)
+            webui_connected = deluge_handler.call(
                 "web.connect", [web_ui_daemons.get("result")[0][0]], 0
             )
+            time.sleep(1)
             if webui_connected is False:
                 print(
                     f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
@@ -172,7 +172,7 @@ async def main():
         # get torrent list
         torrent_list = (
             (
-                await deluge_handler.call(
+                deluge_handler.call(
                     "web.update_ui",
                     [["name", "save_path", "progress", "time_added"], {}],
                 )
@@ -184,9 +184,11 @@ async def main():
         # make sure list exists
         if torrent_list != None:
             filtered_torrents = list(
-                filter(lambda kv: filter_added_time(kv), torrent_list.items())
+                filter(
+                    lambda kv: filter_added_time(kv),
+                    torrent_list.items(),
+                )
             )
-
             if len(filtered_torrents) == 0:
                 print(
                     f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}no eligible torrents.\n\t\tscript completed.{CEND}\n\n"
@@ -200,7 +202,7 @@ async def main():
                 )
 
                 # pause relevant torrents
-                await deluge_handler.call("core.pause_torrent", [hash])
+                deluge_handler.call("core.pause_torrent", [hash])
             print(
                 f"[{CRED}pause_summary{CEND}]: paused {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
             )
@@ -211,13 +213,11 @@ async def main():
             print("\n\n")
 
             deluge_handler = DelugeHandler()
-            auth_response = await deluge_handler.call(
-                "auth.login", [deluge_password], 0
-            )
+            auth_response = deluge_handler.call("auth.login", [deluge_password], 0)
 
             # resume all the torrents we previously paused
             for hash, values in filtered_torrents:
-                await deluge_handler.call("core.resume_torrent", [hash])
+                deluge_handler.call("core.resume_torrent", [hash])
                 print(
                     f"[{CGREEN}resume_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
                     f"\n\t\t  {CYELLOW}info_hash{CEND}: {hash}\n"
@@ -240,9 +240,5 @@ async def main():
     deluge_handler.session.close()
 
 
-async def run_main():
-    await main()
-
-
 if __name__ == "__main__":
-    asyncio.run(run_main())
+    main()
