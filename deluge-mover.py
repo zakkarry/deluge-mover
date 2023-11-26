@@ -151,7 +151,10 @@ def recursive_path_list(dir):
 
 def filter_added_time(t_object):
     cached_file = False
-    if t_object[1].get("time_added", None) is None:
+    if (
+        t_object[1].get("time_added", None) is None
+        or t_object[1].get("name", None) is None
+    ):
         return False
     time_elapsed = int(time.time()) - t_object[1].get("time_added", [None])
     assumed_path = path.join(cache_download_path, t_object[1].get("name", [None]))
