@@ -183,7 +183,7 @@ def main():
         auth_response = deluge_handler.call("auth.login", [deluge_password], 0)
 
         # reconnect the daemon for accurate results
-        deluge_handler.call("web.disconnect", [deluge_password], 0)
+        deluge_handler.call("web.disconnect", [], 0)
         time.sleep(2)
 
         # checks the status of webui being connected, and connects to the daemon
