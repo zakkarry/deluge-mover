@@ -181,6 +181,13 @@ def main():
     try:
         # auth.login
         auth_response = deluge_handler.call("auth.login", [deluge_password], 0)
+        print(
+            f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
+            auth_response,
+            "\n",
+        )
+        if auth_response.get("result") != True:
+            exit(1)
         webui_connected = deluge_handler.call("web.connected", [], 0)
         print(f"[json-rpc/web.connected] {webui_connected}")
 
@@ -196,31 +203,28 @@ def main():
             if webui_connected[1] == "Connected":
                 # reconnect the web daemon to the previously connected host
                 web_disconnect = deluge_handler.call("web.disconnect", [], 0)
+                webui_connected = deluge_handler.call(
+                    "web.get_host_status", [webui_connected_host], 0
+                ).get("result")
                 print(f"[json-rpc/web.disconnect] {web_disconnect}")
                 break
 
         # checks the status of webui being connected, and connects to the daemon
         webui_connected = webui_connected[1]
         if webui_connected == "Online":
-            webui_connected = deluge_handler.call(
-                "web.connect", [webui_connected_host], 0
-            )
+            deluge_handler.call("web.connect", [webui_connected_host], 0)
             time.sleep(1)
-            if webui_connected.get("result") is None:
+            webui_connected = deluge_handler.call(
+                "web.get_host_status", [webui_connected_host], 0
+            ).get("result")
+            if webui_connected[1] != "Connected":
                 print(
                     f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
                     f"{CYELLOW}\t Open the WebUI's connection manager to resolve this.{CEND}\n\n"
                 )
                 exit(1)
             else:
-                print(f"[json-rpc/web.connect] Successfully reconnected to daemon.")
-        print(
-            f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
-            auth_response,
-            "\n\n",
-        )
-        if auth_response.get("result") is False:
-            exit(1)
+                print(f"[json-rpc/web.connect] Successfully reconnected to daemon.\n")
         # get torrent list
         torrent_list = (
             deluge_handler.call(
