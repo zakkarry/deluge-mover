@@ -222,6 +222,8 @@ def main():
                     f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
                     f"{CYELLOW}\t Open the WebUI's connection manager to resolve this.{CEND}\n\n"
                 )
+                deluge_handler.call("auth.delete_session", [], 0)
+                deluge_handler.session.close()
                 exit(1)
             else:
                 print(f"[json-rpc/web.connect] Successfully reconnected to daemon.\n")
@@ -245,6 +247,8 @@ def main():
                 print(
                     f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}no eligible torrents.\n\t\tscript completed.{CEND}\n\n"
                 )
+                deluge_handler.call("auth.delete_session", [], 0)
+                deluge_handler.session.close()
                 exit(0)
             # loop through items in torrent list
             for hash, values in filtered_torrents:
@@ -276,6 +280,7 @@ def main():
                 f"[{CGREEN}init{CEND}] -> {CYELLOW}{CBOLD}Executing unRAID Mover...{CEND}\n"
             )
             time.sleep(3)
+            deluge_handler.call("auth.delete_session", [], 0)
             deluge_handler.session.close()
 
             if use_mover_old:
@@ -307,10 +312,13 @@ def main():
             print(
                 f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is likely not connected to the Deluge daemon. Open the WebUI to resolve this.{CEND}\n\n"
             )
+            deluge_handler.call("auth.delete_session", [], 0)
+            deluge_handler.session.close()
             exit(1)
     except Exception as e:
         print(f"\n\n[{CRED}error{CEND}]: {CBOLD}{e}{CEND}\n\n")
 
+    deluge_handler.call("auth.delete_session", [], 0)
     deluge_handler.session.close()
 
 
