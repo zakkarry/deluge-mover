@@ -145,30 +145,53 @@ def main():
     try:
         # auth.login
         auth_response = deluge_handler.call("auth.login", [deluge_password], 0)
+        print(
+            f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
+            auth_response,
+            "\n",
+        )
+        if auth_response.get("result") != True:
+            deluge_handler.session.close()
+            exit(1)
+        webui_connected = deluge_handler.call("web.connected", [], 0)
+        print(f"[json-rpc/web.connected] {webui_connected}")
 
-        # reconnect the daemon for accurate results
-        deluge_handler.call("web.disconnect", [deluge_password], 0)
         time.sleep(2)
+        # get hosts list
+        web_ui_daemons = deluge_handler.call("web.get_hosts", [], 0).get("result")
+        # check which host is connected
+        for daemon in web_ui_daemons:
+            webui_connected_host = daemon[0]
+            webui_connected = deluge_handler.call(
+                "web.get_host_status", [webui_connected_host], 0
+            ).get("result")
+            if webui_connected[1] == "Connected":
+                # reconnect the web daemon to the previously connected host
+                web_disconnect = deluge_handler.call("web.disconnect", [], 0)
+                webui_connected = deluge_handler.call(
+                    "web.get_host_status", [webui_connected_host], 0
+                ).get("result")
+                print(f"[json-rpc/web.disconnect] {web_disconnect}")
+                break
 
         # checks the status of webui being connected, and connects to the daemon
-        webui_connected = deluge_handler.call("web.connected", [], 0).get("result")
-        if webui_connected is False:
-            web_ui_daemons = deluge_handler.call("web.get_hosts", [], 0)
-            webui_connected = deluge_handler.call(
-                "web.connect", [web_ui_daemons.get("result")[0][0]], 0
-            )
+        webui_connected = webui_connected[1]
+        if webui_connected == "Online":
+            deluge_handler.call("web.connect", [webui_connected_host], 0)
             time.sleep(1)
-            if webui_connected is False:
+            webui_connected = deluge_handler.call(
+                "web.get_host_status", [webui_connected_host], 0
+            ).get("result")
+            if webui_connected[1] != "Connected":
                 print(
                     f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is not automatically connectable to the Deluge daemon.{CEND}\n"
                     f"{CYELLOW}\t Open the WebUI's connection manager to resolve this.{CEND}\n\n"
                 )
+                deluge_handler.call("auth.delete_session", [], 0)
+                deluge_handler.session.close()
                 exit(1)
-        print(
-            f"[{CGREEN}json-rpc{CEND}/{CYELLOW}auth.login{CEND}]",
-            auth_response,
-            "\n\n",
-        )
+            else:
+                print(f"[json-rpc/web.connect] Successfully reconnected to daemon.\n")
         # get torrent list
         torrent_list = (
             (
@@ -207,6 +230,7 @@ def main():
                 f"[{CRED}pause_summary{CEND}]: paused {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
             )
             time.sleep(3)
+            deluge_handler.call("auth.delete_session", [], 0)
             deluge_handler.session.close()
 
             time.sleep(sleep_time_hours * 60 * 60)
@@ -233,10 +257,13 @@ def main():
             print(
                 f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is likely not connected to the Deluge daemon. Open the WebUI to resolve this.{CEND}\n\n"
             )
+            deluge_handler.call("auth.delete_session", [], 0)
+            deluge_handler.session.close()
             exit(1)
     except Exception as e:
         print(f"\n\n[{CRED}error{CEND}]: {CBOLD}{e}{CEND}\n\n")
 
+    deluge_handler.call("auth.delete_session", [], 0)
     deluge_handler.session.close()
 
 
