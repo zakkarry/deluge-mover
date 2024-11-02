@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-import asyncio
+import argparse
 import json
 import random
 import requests
 import time
 from enum import Enum
-from os import path, walk, system
 from urllib.parse import urlparse
+
 
 ### CONFIGURATION VARIABLES ###
 
@@ -14,13 +14,6 @@ from urllib.parse import urlparse
 # this ends with '/json'
 deluge_webui = "http://localhost:8112/json"
 deluge_password = "deluged"
-
-# this is the absolute host path to your cache drive's downloads
-# you only need this to be changed/set if using 'check_fs = True'
-cache_download_path = "/mnt/user/data/torrents/completed"
-
-# this is the number of hours you wish to leave the torrents paused
-sleep_time_hours = 6
 
 ### STOP EDITING HERE ###
 ### STOP EDITING HERE ###
@@ -114,32 +107,7 @@ class DelugeHandler:
             deluge_cookie = None
 
 
-def find_file_on_disk(dir, target):
-    for root, dirs, files in recursive_path_list(dir):
-        if target in files or target in dirs:
-            return path.join(root, target)
-    return None
-
-
-def recursive_path_list(dir):
-    return [(root, dirs, files) for root, dirs, files in walk(dir)]
-
-
-def filter_added_time(t_object):
-    if t_object[1].get("time_added", None) is None:
-        return False
-    current_path = path.join(cache_download_path, t_object[1].get("name", [None]))
-
-    if path.exists(current_path):
-        return False
-    elif (
-        find_file_on_disk(cache_download_path, t_object[1].get("name", [None])) != None
-    ):
-        return False
-    return True
-
-
-def main():
+def main(action):
     deluge_handler = DelugeHandler()
 
     try:
@@ -206,53 +174,42 @@ def main():
 
         # make sure list exists
         if torrent_list != None:
-            filtered_torrents = list(
-                filter(
-                    lambda kv: filter_added_time(kv),
-                    torrent_list.items(),
-                )
-            )
-            if len(filtered_torrents) == 0:
+            if len(torrent_list) == 0:
                 print(
-                    f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}no eligible torrents.\n\t\tscript completed.{CEND}\n\n"
+                    f"\n\n[{CGREEN}deluge-presume{CEND}]: {CBOLD}no eligible torrents.\n\t\tscript completed.{CEND}\n\n"
                 )
                 exit(0)
             # loop through items in torrent list
-            for hash, values in filtered_torrents:
-                print(
-                    f"[{CRED}pause_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
-                    f"\n\t\t {CYELLOW}info_hash{CEND}: {hash}\n"
-                )
+            for hash, values in torrent_list.items():
+                if action == "pause":
+                    print(
+                        f"[{CRED}pause_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
+                        f"\n\t\t {CYELLOW}info_hash{CEND}: {hash}\n"
+                    )
 
-                # pause relevant torrents
-                deluge_handler.call("core.pause_torrent", [hash])
+                    # pause relevant torrents
+                    deluge_handler.call("core.pause_torrent", [hash])
+
+                elif action == "resume":
+                    # resume all the torrents we previously paused
+                    deluge_handler.call("core.resume_torrent", [hash])
+                    print(
+                        f"[{CGREEN}resume_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
+                        f"\n\t\t  {CYELLOW}info_hash{CEND}: {hash}\n"
+                    )
+                else:
+                    print(
+                        f"\n\n[{CGREEN}deluge-presume{CEND}]: {CBOLD}no valid action was provided (pause or resume).\n\t\tscript completed.{CEND}\n\n"
+                    )
+                    exit(1)
             print(
-                f"[{CRED}pause_summary{CEND}]: paused {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
+                f"\n\n[{CGREEN}deluge-presume{CEND}]: {CBOLD}script completed.{CEND}\n\n"
+            )
+            print(
+                f"[{CRED}{action}_summary{CEND}]: {action}d {CYELLOW}{CBOLD}{len(torrent_list)}{CEND} torrents...\n"
             )
             time.sleep(3)
-            deluge_handler.call("auth.delete_session", [], 0)
-            deluge_handler.session.close()
 
-            time.sleep(sleep_time_hours * 60 * 60)
-            print("\n\n")
-
-            deluge_handler = DelugeHandler()
-            auth_response = deluge_handler.call("auth.login", [deluge_password], 0)
-
-            # resume all the torrents we previously paused
-            for hash, values in filtered_torrents:
-                deluge_handler.call("core.resume_torrent", [hash])
-                print(
-                    f"[{CGREEN}resume_torrent{CEND}]: {CBOLD}{values.get('name', [None])}{CEND}"
-                    f"\n\t\t  {CYELLOW}info_hash{CEND}: {hash}\n"
-                )
-
-            print(
-                f"[{CGREEN}resume_summary{CEND}]: resumed {CYELLOW}{CBOLD}{len(filtered_torrents)}{CEND} torrents...\n"
-            )
-            print(
-                f"\n\n[{CGREEN}deluge-mover{CEND}]: {CBOLD}script completed.{CEND}\n\n"
-            )
         else:
             print(
                 f"\n\n[{CRED}error{CEND}]: {CYELLOW}Your WebUI is likely not connected to the Deluge daemon. Open the WebUI to resolve this.{CEND}\n\n"
@@ -265,7 +222,13 @@ def main():
 
     deluge_handler.call("auth.delete_session", [], 0)
     deluge_handler.session.close()
+    exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Handle pause and resume actions.")
+    parser.add_argument(
+        "action", choices=["pause", "resume"], help="Specify 'pause' or 'resume'"
+    )
+    args = parser.parse_args()
+    main(args.action)
